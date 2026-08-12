@@ -1,0 +1,282 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Infraestrutura de Operacoes: Automacao de JVM via SSM com Notificacao' # descricao simples da Stack
+
+Parameters:
+  # opcional pois os contatos podem ser cadastrados via Console do SNS
+  # EmailNotificacaoOps:
+  #   Type: String
+  #   Description: E-mail padrao para receber alertas do SNS
+  #   Default: seu-email@exemplo.com
+
+  # em contas de estudante nao ha a possibilidade de criar novas Roles
+  # nesses casos e necessario usar a Role default fornecida pelo laboratorio virtual
+  ExistingLabRoleName:
+    Type: String
+    Description: 'Nome da Role existente com permissoes (ex: LabRole ou VocLabs)'
+    Default: LabRole # usa a Role criada pelo laboratorio virtual
+
+Resources:
+
+  # REDES
+
+  # cria uma VPC que hospedara os recursos
+  OpsVPC:
+    # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-vpc.html
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16 # define o bloco de IPs utilizado pela VPC
+      EnableDnsSupport: true # ativa o DNS
+      EnableDnsHostnames: true # ativa o DNS
+      Tags:
+        - Key: Name
+          Value: Ops-VPC-Lab
+
+  # cria um Internet Gateway para comunicacao com a Internet
+  OpsInternetGateway:
+    # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-internetgateway.html
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Ops-IGW-Lab
+
+  # adiciona um VPC Gateway
+  OpsVPCGatewayAttachment:
+    # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-vpcgatewayattachment.html 
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref OpsVPC
+      InternetGatewayId: !Ref OpsInternetGateway
+
+  # cria uma subnet dentro da VPC    
+  OpsPublicSubnet:
+    # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-subnet.html
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref OpsVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true # permite o mapeamento de um IP Publico para a instancia
+      Tags:
+        - Key: Name
+          Value: Ops-Public-Subnet
+
+  # cria uma tabela de roteamento para a VPC
+  OpsPublicRouteTable:
+    # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-routetable.html
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref OpsVPC
+      Tags:
+        - Key: Name
+          Value: Ops-Public-RT
+
+  # adiciona uma rota para a Internet a tabela de roteamento
+  OpsPublicRoute:
+    # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-route.html
+    Type: AWS::EC2::Route
+    DependsOn: OpsVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref OpsPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0 # Internet
+      GatewayId: !Ref OpsInternetGateway
+
+  # associa a tabela de roteamento a subnet criada
+  OpsSubnetRouteTableAssociation:
+    # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-subnetroutetableassociation.html
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref OpsPublicRouteTable
+      SubnetId: !Ref OpsPublicSubnet
+
+  # cria um Security Group para permitir trafego TCP na porta HTTP 80 vindo da Internet
+  OpsSecurityGroup:
+    # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-securitygroup.html
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Permite trafego HTTP e saida padrao
+      VpcId: !Ref OpsVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80 # HTTP
+          ToPort: 80 # HTTP
+          CidrIp: 0.0.0.0/0 # Internet
+      Tags:
+        - Key: Name
+          Value: Ops-Web-SG
+
+  # SNS
+
+  # cria um topico no SNS
+  OpsSNSTopic:
+    # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-sns-topic.html
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: Alertas-Restart-JVM-Lab # define o nome do topico
+      # opcionalmente criptografa as mensagens usando uma Key criada via KMS
+      # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-kms-key.html
+      #KmsMasterKeyId: "arn:aws:kms:us-east-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+
+      # cria uma subscription no topico criado
+      # opcional caso opte por criar a subscricao via template
+      # OpsSNSSubscription:
+      # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-sns-subscription.html
+      # Type: AWS::SNS::Subscription
+      # Properties:
+      #   Protocol: email
+      #   TopicArn: !Ref OpsSNSTopic # utiliza o ARN retornado da criacao do topico
+      #   Endpoint: !Ref EmailNotificacaoOps # utiliza como endpoint o e-mail definido na variavel
+
+      # COMPUTE
+
+  EC2InstanceProfile:
+    # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-instanceprofile.html
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: EC2-SSM-Operations-Profile-Lab # define o nome do Profile
+      Roles:
+        - !Ref ExistingLabRoleName # utiliza a Role e as permissoes concedidas pelo laboratorio virtual
+
+  # cria uma VM simples no EC2
+  AppServerEC2:
+    # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-instance.html
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro # Free Tier
+      ImageId: ami-004f790b835b26145 # Amazon Linux 2023
+      IamInstanceProfile: !Ref EC2InstanceProfile # usa a Role do laboratorio virtual
+      SubnetId: !Ref OpsPublicSubnet # associa a rede
+      SecurityGroupIds:
+        - !Ref OpsSecurityGroup # associa o Security Group firewall
+      Tags:
+        # define um hostname para a instancia
+        - Key: Name
+          Value: US-PRD-AWS-001
+      # script para instalacao do Amazon Corretto e simula JVMs para teste
+      # as simulacoes sao opcionais
+      UserData: !Base64
+        Fn::Sub: |
+          #!/bin/bash
+          yum update -y
+          # instala o Java 17 Amazon Corretto e o NGINX
+          yum install java-17-amazon-corretto -y
+          yum install nginx -y
+
+          # cria o novo diretorio raiz para o gerenciamento dos logs
+          mkdir -p /suporteapp/logs/usprd01a
+          mkdir -p /suporteapp/logs/usprd02b
+          mkdir -p /suporteapp/logs/usprd03c
+          mkdir -p /suporteapp/logs/usprd04d
+
+          # ou
+          # mkdir -p /suporteapp/logs/{usprd01a,usprd02b,usprd03c,usprd04d}
+
+          # cria a estrutura do restante do Apache Tomcat
+          mkdir -p /suporteapp/app
+          mkdir -p /suporteapp/deploy
+
+          # altera o dono da pasta para o ec2-user boas praticas de seguranca para nao rodar como root
+          chown -R ec2-user:ec2-user /suporteapp
+
+          # inicia o NGINX
+          systemctl enable nginx
+          systemctl start nginx
+
+  # STORAGE
+
+  AppS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: jvm-status-ops-01a
+
+  # AUTOMACAO
+
+  # cria o runboook da automacao no SSM
+  HardRestartJVMDocument:
+    # https://docs.aws.amazon.com/pt_br/AWSCloudFormation/latest/TemplateReference/aws-resource-ssm-document.html
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation # define que se trata de uma automacao
+      Name: HardRestart-JVM-App # nome do runbook
+      Content:
+        # https://docs.aws.amazon.com/systems-manager/latest/userguide/documents-schemas-features.html
+        schemaVersion: '0.3' # Automation
+        description: Hard Restart de JVM Tomcat # descricao simples do runbook
+        parameters:
+          # define os parametros que o usuario pode inserir via Console do SSM
+          HostName:
+            type: String
+            description: 'Nome do Servidor (ex: US-PRD-AWS-001)'
+          JvmName:
+            type: String
+            description: 'Nome da Instancia JVM (ex: usprd01a)'
+        mainSteps:
+          # cria uma acao no runbook
+          # neste caso cria a acao que realizara o restart da JVM
+          - name: ExecutarRestart # nome da acao
+            # https://docs.aws.amazon.com/systems-manager/latest/userguide/automation-action-runcommand.html
+            action: aws:runCommand # executar um comando remotamente em uma instanca com o SSM Agent
+            inputs:
+              DocumentName: AWS-RunShellScript # nome
+              Targets:
+                # define onde a acao deve ser executada
+                - Key: tag:Name
+                  Values:
+                    - '{{ HostName }}'
+              Parameters:
+                # define os parametros e comandos
+                commands:
+                  # busca o PID da JVM e forca a parada aguardando cinco segundos e iniciando novamente com o script do Apache Tomcat
+                  - |
+                    JVM="{{ JvmName }}"
+
+                    # busca pelo processo no diretorio criado para a aplicacao
+                    PID=$(ps -ef | grep "/suporteapp/app/tomcat_$JVM" | grep -v grep | awk '{print $2}')
+                    if [ -n "$PID" ]; then
+                        kill -9 $PID
+                        sleep 5
+                    fi
+
+                    # executa a inicializacao a partir do script de start do Apache Tomcat
+                    sudo su - ec2-user -c "sh /suporteapp/app/tomcat_$JVM/bin/startup.sh"
+
+          # cria a acao que notifica os contatos cadastrados       
+          - name: NotificarOps
+            # https://docs.aws.amazon.com/systems-manager/latest/userguide/automation-action-executeAwsApi.html
+            action: aws:executeAwsApi # executa acoes usando a AWS API
+            inputs:
+              # utiliza a opcao de publicacao de mensagens do SNS
+              Service: sns
+              Api: Publish
+              TopicArn: !Ref OpsSNSTopic # utiliza o topico criado
+              Subject: '[Ops] Automated Recovery Action Executed' # assunto do e-mail
+              # define a mensagem que sera enviada via e-mail para os contatos cadastrados no topico
+              # em ambientes gerados por laboratorios virtuais apenas o envio de mensagens em texto simples esta disponivel
+              Message: |
+                =========================================================================
+
+                AWS SYSTEMS MANAGER - AUTOMATION CENTER
+
+                =========================================================================
+
+                Hi,
+
+                An automated recovery action was executed in the environment.
+                The operation details follow:
+
+                [ OPERATION DETAILS ]
+                -------------------------------------------------------------------------
+                Server (Host): {{ HostName }}
+                Instance JVM: {{ JvmName }}
+                Action Performed: Hard Restart (kill -9) + startup.sh
+                Status: SUCESS
+
+                [ NEXT STEPS ]
+                -------------------------------------------------------------------------
+                1. Check the logs path: /suporteapp/logs/{{ JvmName }}/SystemOut.log
+                2. Validate the application's response through the browser
+
+                =========================================================================
+
+                Automatically generated via AWS Cloud Operations by Gustavo Goncalves
+
+                =========================================================================
