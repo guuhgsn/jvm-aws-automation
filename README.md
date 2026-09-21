@@ -385,7 +385,7 @@ Acompanhe os passos (`ExecutarRestart` e `NotificarOps`) na execução, e confir
 
 ## Limpeza dos Recursos
 
-Especialmente importante em ambientes de laboratório e Free Tier, nada aqui gera custo se for apagado direito, mas vale o hábito.
+Especialmente importante em ambientes de laboratório e Free Tier, o custo é próximo de zero, mas vale o hábito.
 
 > ⚠️ O `cfn_manage_stack.ps1` não inclui um comando de exclusão, os comandos abaixo foram adicionados aqui pra fechar esse fluxo, já que laboratórios costumam ter cota e/ou tempo de sessão limitados.
 

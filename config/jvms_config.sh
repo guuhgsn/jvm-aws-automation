@@ -2,7 +2,8 @@
 
 ## realizar o download do Apache Tomcat
 cd /tmp
-wget https://dlcdn.apache.org/tomcat/tomcat-9/v9.0.120/bin/apache-tomcat-9.0.120.tar.gz
+# 9.0.120 - versao utilizada no laboratorio - novos releases devem funcionar normalmente
+wget https://archive.apache.org/dist/tomcat/tomcat-9/v9.0.120/bin/apache-tomcat-9.0.120.tar.gz
 sudo tar -xzf apache-tomcat-9.0.120.tar.gz
 
 ## mover a pasta descompactada e cria a estrutura

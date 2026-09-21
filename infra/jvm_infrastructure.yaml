@@ -15,6 +15,11 @@ Parameters:
     Description: 'Nome da Role existente com permissoes (ex: LabRole ou VocLabs)'
     Default: LabRole # usa a Role criada pelo laboratorio virtual
 
+  # busca a ultima versao da AMI Amazon Linux 2023 na regiao
+  LatestAL2023AMI:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'
+
 Resources:
 
   # REDES
@@ -142,7 +147,7 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.micro # Free Tier
-      ImageId: ami-004f790b835b26145 # Amazon Linux 2023
+      ImageId: !Ref LatestAL2023AMI # Amazon Linux 2023
       IamInstanceProfile: !Ref EC2InstanceProfile # usa a Role do laboratorio virtual
       SubnetId: !Ref OpsPublicSubnet # associa a rede
       SecurityGroupIds:
@@ -183,10 +188,11 @@ Resources:
 
   # STORAGE
 
+  # cria um Bucket no Amazon S3 para armazenar o arquivo .war
   AppS3Bucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: jvm-status-ops-01a
+      BucketName: jvm-status-ops-01a # substituir por um nome unico globalmente
 
   # AUTOMACAO
 
@@ -268,7 +274,7 @@ Resources:
                 Server (Host): {{ HostName }}
                 Instance JVM: {{ JvmName }}
                 Action Performed: Hard Restart (kill -9) + startup.sh
-                Status: SUCESS
+                Status: SUCCESS
 
                 [ NEXT STEPS ]
                 -------------------------------------------------------------------------

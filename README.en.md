@@ -391,7 +391,7 @@ Follow the steps (`ExecutarRestart` and `NotificarOps`) as they run, and check w
 
 ## Cleaning Up Resources
 
-Especially important in lab and Free Tier environments; nothing here costs anything if it's deleted properly, but it's a good habit regardless.
+Especially important in lab and Free Tier environments, the cost is close to zero, but it's a good habit regardless.
 
 > ⚠️ `cfn_manage_stack.ps1` doesn't include a delete command; the commands below were added here to close that loop, since labs tend to have limited quotas and/or session time.
 
